@@ -13,6 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Sample Compose DandD"
+rootProject.name = "SampleComposeDandD"
 include(":app")
  
