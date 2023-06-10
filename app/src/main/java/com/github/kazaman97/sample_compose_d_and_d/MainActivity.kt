@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -158,12 +159,19 @@ private fun SampleItem(text: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(MaterialTheme.colors.background)
             .padding(horizontal = 4.dp)
             .heightIn(min = 48.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text(text = text)
+        Text(
+            text = text,
+            color = if (isSystemInDarkTheme()) {
+                Color.White
+            } else {
+                Color.Black
+            }
+        )
     }
 }
 
