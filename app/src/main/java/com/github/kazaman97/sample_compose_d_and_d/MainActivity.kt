@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListItemInfo
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.DismissDirection
 import androidx.compose.material.DismissValue
 import androidx.compose.material.Divider
@@ -39,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.github.kazaman97.sample_compose_d_and_d.ui.theme.SampleComposeDandDTheme
@@ -89,13 +94,47 @@ private fun SampleList(
     samples: List<Sample>,
     onDelete: (id: Long) -> Unit
 ) {
+    val lazyListState = rememberLazyListState()
+    var currentIndexOfDraggedItem: Int? by remember { mutableStateOf(null) }
+    var initiallyDraggedElement: LazyListItemInfo? by remember { mutableStateOf(null) }
+    var draggedDistance by remember { mutableStateOf(0f) }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDrag = { change, dragAmount ->
+                        // 変更イベントを消費して他のHandlerで再び変更イベントが流れないようにする
+                        change.consume()
+                        // y軸の移動距離を保持する
+                        draggedDistance += dragAmount.y
+                    },
+                    onDragStart = { offset ->
+                        // LongPressしているItemを探す
+                        val findItem =
+                            lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                offset.y.toInt() in item.offset..(item.offset + item.size)
+                            } ?: return@detectDragGesturesAfterLongPress
+                        // LongPressしているItemを見つけたら index & item自体を保持する
+                        // itemにindex情報が入っているため、item自体を保持するならいらない気がする
+                        currentIndexOfDraggedItem = findItem.index
+                        initiallyDraggedElement = findItem
+                    },
+                    onDragEnd = {
+                        // Dragが完了したら、y軸の移動距離を初期化する
+                        draggedDistance = 0f
+                    },
+                    onDragCancel = {
+                    }
+                )
+            },
+        state = lazyListState
     ) {
-        items(
+        itemsIndexed(
             items = samples,
-            key = { it.id }
-        ) { sample ->
+            key = { _, item -> item.id }
+        ) { index, sample ->
             val dismissState = rememberDismissState(
                 confirmStateChange = {
                     if (it == DismissValue.DismissedToStart) onDelete(sample.id)
@@ -104,6 +143,12 @@ private fun SampleList(
             )
 
             SwipeToDismiss(
+                // graphicsLayerを使ってdrag距離に応じ、DragしているItemの位置を変更する
+                modifier = Modifier.graphicsLayer {
+                    translationY = draggedDistance.takeIf {
+                        index == currentIndexOfDraggedItem
+                    } ?: 0f
+                },
                 state = dismissState,
                 directions = setOf(DismissDirection.EndToStart),
                 background = {
