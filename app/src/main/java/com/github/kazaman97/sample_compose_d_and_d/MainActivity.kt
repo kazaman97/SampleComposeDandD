@@ -8,6 +8,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,16 +38,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.github.kazaman97.sample_compose_d_and_d.ui.theme.SampleComposeDandDTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,6 +81,12 @@ class MainActivity : ComponentActivity() {
                             samples = samples.toMutableList().apply {
                                 removeIf { it.id == id }
                             }
+                        },
+                        onMove = { fromIndex, toIndex ->
+                            samples = samples.toMutableList().apply {
+                                val removeItem = removeAt(fromIndex)
+                                add(toIndex, removeItem)
+                            }
                         }
                     )
                 }
@@ -92,12 +104,29 @@ private data class Sample(
 @Composable
 private fun SampleList(
     samples: List<Sample>,
-    onDelete: (id: Long) -> Unit
+    onDelete: (id: Long) -> Unit,
+    onMove: (fromIndex: Int, toIndex: Int) -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
     var currentIndexOfDraggedItem: Int? by remember { mutableStateOf(null) }
     var initiallyDraggedElement: LazyListItemInfo? by remember { mutableStateOf(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
+    var overScrollJob: Job? by remember { mutableStateOf(null) }
+
+    fun checkForOverScroll(): Float = initiallyDraggedElement?.let {
+        val startOffset = it.offset + draggedDistance
+        val endOffset = it.offset + it.size + draggedDistance
+        val viewPortStart = lazyListState.layoutInfo.viewportStartOffset
+        val viewPortEnd = lazyListState.layoutInfo.viewportEndOffset
+
+        when {
+            draggedDistance > 0 -> (endOffset - viewPortEnd).takeIf { diff -> diff > 0 }
+            draggedDistance < 0 -> (startOffset - viewPortStart).takeIf { diff -> diff < 0 }
+            else -> null
+        }
+    } ?: 0f
 
     LazyColumn(
         modifier = Modifier
@@ -109,8 +138,58 @@ private fun SampleList(
                         change.consume()
                         // y軸の移動距離を保持する
                         draggedDistance += dragAmount.y
+
+                        initiallyDraggedElement?.also {
+                            val startOffset = it.offset + draggedDistance
+                            val endOffset = (it.offset + it.size) + draggedDistance
+
+                            val currentElement = currentIndexOfDraggedItem?.let { index ->
+                                // visibleItemsInfoに入っている配列から取得する必要があるため、相対indexに変換して取得する
+                                lazyListState.layoutInfo.visibleItemsInfo.getOrNull(
+                                    index - lazyListState.layoutInfo.visibleItemsInfo.first().index
+                                )
+                            }
+                            currentElement?.also { hovered ->
+                                // DragしているItemと重なっているItemを探す(これは複数取得できる可能性がある)
+                                lazyListState.layoutInfo.visibleItemsInfo
+                                    .filterNot { item ->
+                                        (item.offset + item.size) < startOffset || item.offset > endOffset
+                                    }
+                                    .firstOrNull { item ->
+                                        // Drag方向に応じて取得するItemを判定する
+                                        // 正の値ならincrementしたitem
+                                        // 負の値ならdecrementしたitem
+                                        val delta = startOffset - hovered.offset
+                                        if (delta > 0) {
+                                            endOffset > (item.offset + item.size)
+                                        } else {
+                                            startOffset < item.offset
+                                        }
+                                    }
+                                    ?.also { item ->
+                                        // itemの位置が変わっていることを伝える
+                                        currentIndexOfDraggedItem?.also { currentIndex ->
+                                            onMove(currentIndex, item.index)
+                                        }
+                                        // DragしているItemのIndexを変更する
+                                        currentIndexOfDraggedItem = item.index
+                                    }
+                            }
+                        }
+
+                        if (overScrollJob?.isActive == true) return@detectDragGesturesAfterLongPress
+
+                        checkForOverScroll()
+                            .takeIf { offset -> offset != 0f }
+                            ?.let { offset ->
+                                overScrollJob = coroutineScope.launch {
+                                    lazyListState.scrollBy(offset)
+                                }
+                            }
+                            ?: run { overScrollJob?.cancel() }
                     },
                     onDragStart = { offset ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         // LongPressしているItemを探す
                         val findItem =
                             lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
@@ -124,8 +203,14 @@ private fun SampleList(
                     onDragEnd = {
                         // Dragが完了したら、y軸の移動距離を初期化する
                         draggedDistance = 0f
+                        currentIndexOfDraggedItem = null
+                        initiallyDraggedElement = null
                     },
                     onDragCancel = {
+                        // Dragがキャンセルされたら、y軸の移動距離を初期化する
+                        draggedDistance = 0f
+                        currentIndexOfDraggedItem = null
+                        initiallyDraggedElement = null
                     }
                 )
             },
