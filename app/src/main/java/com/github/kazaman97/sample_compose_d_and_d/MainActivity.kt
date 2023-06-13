@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -48,6 +49,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.github.kazaman97.sample_compose_d_and_d.ui.theme.SampleComposeDandDTheme
@@ -229,11 +233,53 @@ private fun SampleList(
 
             SwipeToDismiss(
                 // graphicsLayerを使ってdrag距離に応じ、DragしているItemの位置を変更する
-                modifier = Modifier.graphicsLayer {
-                    translationY = draggedDistance.takeIf {
-                        index == currentIndexOfDraggedItem
-                    } ?: 0f
-                },
+                modifier = Modifier
+                    .semantics {
+                        customActions = buildList {
+                            val prevIndex = index.dec()
+                            val nextIndex = index.inc()
+
+                            if (0 <= prevIndex) {
+                                add(
+                                    CustomAccessibilityAction(
+                                        label = "id:${samples[prevIndex].id}と入れ替える",
+                                        action = {
+                                            onMove(index, prevIndex)
+                                            true
+                                        }
+                                    )
+                                )
+                            }
+
+                            if (nextIndex <= (samples.size - 1)) {
+                                add(
+                                    CustomAccessibilityAction(
+                                        label = "id:${samples[nextIndex].id}と入れ替える",
+                                        action = {
+                                            onMove(index, nextIndex)
+                                            true
+                                        }
+                                    )
+                                )
+                            }
+
+                            add(
+                                CustomAccessibilityAction(
+                                    label = "削除",
+                                    action = {
+                                        onDelete(sample.id)
+                                        true
+                                    }
+                                )
+                            )
+                        }
+                    }
+                    .graphicsLayer {
+                        translationY = draggedDistance.takeIf {
+                            index == currentIndexOfDraggedItem
+                        } ?: 0f
+                    }
+                    .clickable { },
                 state = dismissState,
                 directions = setOf(DismissDirection.EndToStart),
                 background = {
