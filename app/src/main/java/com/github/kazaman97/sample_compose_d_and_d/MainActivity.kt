@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListItemInfo
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.DismissDirection
@@ -104,6 +105,12 @@ private data class Sample(
     val text: String
 )
 
+// visibleItemsInfoに入っている配列から取得する必要があるため、絶対位置から相対位置indexに変換して取得する
+fun LazyListState.getVisibleItemInfoFor(absoluteIndex: Int): LazyListItemInfo? =
+    this.layoutInfo.visibleItemsInfo.getOrNull(
+        absoluteIndex - this.layoutInfo.visibleItemsInfo.first().index
+    )
+
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
 private fun SampleList(
@@ -148,10 +155,7 @@ private fun SampleList(
                             val endOffset = (it.offset + it.size) + draggedDistance
 
                             val currentElement = currentIndexOfDraggedItem?.let { index ->
-                                // visibleItemsInfoに入っている配列から取得する必要があるため、相対indexに変換して取得する
-                                lazyListState.layoutInfo.visibleItemsInfo.getOrNull(
-                                    index - lazyListState.layoutInfo.visibleItemsInfo.first().index
-                                )
+                                lazyListState.getVisibleItemInfoFor(absoluteIndex = index)
                             }
                             currentElement?.also { hovered ->
                                 // DragしているItemと重なっているItemを探す(これは複数取得できる可能性がある)
@@ -275,9 +279,15 @@ private fun SampleList(
                         }
                     }
                     .graphicsLayer {
-                        translationY = draggedDistance.takeIf {
-                            index == currentIndexOfDraggedItem
-                        } ?: 0f
+                        // DragしているItemのときだけItemのpositionを変更しDrag移動できていることを表現する
+                        if (index != currentIndexOfDraggedItem) return@graphicsLayer
+                        translationY = currentIndexOfDraggedItem
+                            ?.let { lazyListState.getVisibleItemInfoFor(absoluteIndex = it) }
+                            ?.let { item ->
+                                // 初期位置からどれだけ移動しかつDragの結果Itemの位置に変動があればその分も差し引いて現在のDrag位置を算出する
+                                (initiallyDraggedElement?.offset ?: 0f)
+                                    .toFloat() + draggedDistance - item.offset
+                            } ?: 0f
                     }
                     .clickable { },
                 state = dismissState,
